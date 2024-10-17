@@ -1,16 +1,33 @@
+from consts import *
 from sys import path
 from array import array
 from copy import deepcopy
 from sqlite3 import connect
 from operator import attrgetter
 
+
 get_Meta = attrgetter('Meta')
 
 path.append(r'C:\Users\elmen\OneDrive\Documentos\Python\pydrycode files')
 
 
-def join_map(sep, args, /):
-	return sep.join(map(str, args))
+def funcname_to_default(func, /):
+	func.__defaults__ = func.__name__,
+	return func
+
+
+class array(array):
+	__slots__ = ()
+	__lshift__ = array.fromunicode
+
+	def enclose(self, string, /):
+		self << f"{OP_P}{string}{CLOSE_P}"
+
+	@funcname_to_default
+	def create(self, obj, string, /):
+		self << f"{string}{SPACE}{(kind := obj.kind)}"
+		if kind:
+			self.append(SPACE)
 
 
 class Base:
@@ -23,10 +40,10 @@ class Base:
 class Query(Base):
 	__slots__ = ('cursor', 'array', 'params')
 
-	def __init__(self, con, /):
+	def __init__(self, con, string='', params=(), /):
 		self.con = con
-		self.array = array('u')
-		self.params = []
+		self.array = array(string)
+		self.params = [*params]
 
 	def __exit__(self, exc_type, exc_val, exc_tb, /):
 		if exc_type is None:
@@ -41,20 +58,17 @@ class Query(Base):
 				cursor.close()
 
 	def copy(self, /):
-		new = Query(self.con)
-		new.params += self.params
-		new.array += self.array
-		return new
+		cls = type(self)
+		return cls(self.con, self.array, self.params)
 
-	def deepcopy(self, memo={}, /):
-		copy = self.copy()
-		copy.params = deepcopy(copy.params)
-		return copy
+	def deepcopy(self, memo=None, /):
+		cls = type(self)
+		return cls(self.con, self.array, deepcopy(self.params, memo))
 
 	__copy__ = copy
 
 	def new_line(self, string, params, /):
-		self.array.fromunicode(string)
+		self.array << string
 		self.params += params
 		
 
@@ -73,7 +87,10 @@ class Database(Base):
 		con.close()
 
 	def create(self, /, *tables):
-		return (join_map('\n' * 3, map(get_Meta, tables)))
+		data = array('u')
+		for table in tables:
+			table.Meta.sqldef(data)
+		self.con.executescript(data.tounicode())
 
 
 def set_connect(path, func_name='connect'):
